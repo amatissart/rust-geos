@@ -2,6 +2,8 @@ use libc::{atexit, c_char, c_double, c_int, c_uint, c_void, size_t};
 use std::sync::{Once, ONCE_INIT};
 use std::ffi::{CStr, CString};
 use std::{ptr, result, str};
+use error::{Error, Result as GeosResult};
+use std;
 
 #[link(name = "geos_c")]
 extern "C" {
@@ -43,14 +45,14 @@ extern "C" {
     pub fn GEOSGeom_createPoint(s: *const GEOSCoordSequence) -> *mut c_void;
     pub fn GEOSGeom_createLineString(s: *const GEOSCoordSequence) -> *mut c_void;
     pub fn GEOSGeom_createLinearRing(s: *const GEOSCoordSequence) -> *mut c_void;
-    pub fn GEOSGeom_createPolygon(
+    fn GEOSGeom_createPolygon(
         shell: *mut c_void,
-        holes: &[*mut c_void],
+        holes: *mut *mut c_void,
         nholes: c_uint,
     ) -> *mut c_void;
-    pub fn GEOSGeom_createCollection(
+    fn GEOSGeom_createCollection(
         t: c_int,
-        geoms: &[*mut c_void],
+        geoms: *mut *mut c_void,
         ngeoms: c_uint,
     ) -> *mut c_void;
 
@@ -295,15 +297,45 @@ impl CoordSeq {
     }
 }
 
+pub struct SafeCObj {
+    c_obj: *mut c_void,
+}
+
+impl Drop for SafeCObj {
+    fn drop(&mut self) {
+        cleanup_ptr(self.c_obj);
+        self.c_obj = ptr::null_mut();
+    }
+}
+impl SafeCObj {
+    pub fn release(mut self) -> *mut c_void {
+        std::mem::replace(&mut self.c_obj, std::ptr::null_mut())
+    }
+
+    pub fn steal_from(mut geom: GGeom) -> Self {
+        SafeCObj {
+            c_obj: std::mem::replace(&mut geom.c_obj, std::ptr::null_mut())
+        }
+    }
+
+    pub fn as_ptr(&self) -> *mut c_void {
+        self.c_obj
+    }
+}
+
 pub struct GGeom {
     pub c_obj: *mut c_void,
     pub area: f64,
     pub _type: i32,
 }
 
+fn cleanup_ptr(c_obj: *mut c_void) {
+    unsafe { GEOSGeom_destroy(c_obj as *mut c_void) };
+}
+
 impl Drop for GGeom {
     fn drop(&mut self) {
-        unsafe { GEOSGeom_destroy(self.c_obj as *mut c_void) };
+        cleanup_ptr(self.c_obj);
         self.c_obj = ptr::null_mut();
     }
 }
@@ -512,6 +544,61 @@ impl GGeom {
 
     pub fn get_centroid(&self) -> GGeom {
         GGeom::new_from_c_obj(unsafe { GEOSGetCentroid(self.c_obj as *const c_void) })
+    }
+
+    pub fn create_polygon(exterior: GGeom, interiors: Vec<GGeom>) -> GeosResult<GGeom> {
+        let nb_interiors = interiors.len();
+
+        let interiors_ptr: Vec<_> = interiors
+            .into_iter()
+            .map(|mut g| SafeCObj::steal_from(g))
+            .collect();
+
+        let external_c_obj = SafeCObj::steal_from(exterior);
+
+        let t = unsafe {
+            GEOSGeom_createPolygon(
+                external_c_obj.as_ptr(),
+                interiors_ptr[..].as_ptr() as *mut *mut c_void,
+                nb_interiors as c_uint,
+            )
+        };
+        if t.is_null() {
+            Err(Error::InvalidGeometry)
+        } else {
+            // we'll transfert the ownership of the ptr to the new GGeom,
+            // so the old one needs to forget their c ptr to avoid double cleanup
+            external_c_obj.release();
+            for mut i in interiors_ptr {
+                i.release();
+            }
+            Ok(GGeom::new_from_c_obj(t))
+        }
+    }
+
+    pub fn create_mulipolygon(polygons: Vec<GGeom>) -> GeosResult<GGeom> {
+        let nb_polygons = polygons.len();
+        let polygons: Vec<_> = polygons
+            .into_iter()
+            .map(|mut g| SafeCObj::steal_from(g))
+            .collect();
+
+        let t = unsafe {
+            GEOSGeom_createCollection(
+                GEOSGeomTypes::GEOS_MULTIPOLYGON as c_int,
+                polygons[..].as_ptr() as *mut *mut c_void,
+                nb_polygons as c_uint,
+            )
+        };
+
+        if t.is_null() {
+            Err(Error::InvalidGeometry)
+        } else {
+            for mut p in polygons {
+                p.release();
+            }
+            Ok(GGeom::new_from_c_obj(t))
+        }
     }
 }
 

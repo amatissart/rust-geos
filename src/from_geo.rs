@@ -1,62 +1,62 @@
 extern crate geo;
 
-use libc::{c_int, c_uint};
+use std;
+use libc::{c_int, c_uint, c_void};
 use self::geo::{LineString, MultiPolygon, Polygon};
-use ffi::{CoordSeq, GEOSGeomTypes, GEOSGeom_clone, GEOSGeom_createCollection,
-          GEOSGeom_createPolygon, GGeom, _linearRing};
+use ffi::{CoordSeq, GEOSGeomTypes, GEOSGeom_clone, GGeom, _linearRing, SafeCObj};
+use error::Error;
 
-impl<'a> From<&'a LineString<f64>> for GGeom {
-    fn from(ls: &LineString<f64>) -> Self {
-        let nb_pts = ls.0.len();
+// define our own TryInto while the std trait is not stable
+pub trait TryInto<T> {
+    type Err;
+    fn try_into(self) -> Result<T, Self::Err>;
+}
+
+impl<'a> TryInto<GGeom> for &'a LineString<f64> {
+    type Err = Error;
+
+    fn try_into(self) -> Result<GGeom, Self::Err> {
+        let nb_pts = self.0.len();
         let coord_seq_ext = CoordSeq::new(nb_pts as u32, 2);
         for i in 0..nb_pts {
             let j = i as u32;
-            coord_seq_ext.set_x(j, ls.0[i].x());
-            coord_seq_ext.set_y(j, ls.0[i].y());
+            coord_seq_ext.set_x(j, self.0[i].x());
+            coord_seq_ext.set_y(j, self.0[i].y());
         }
-        _linearRing(&coord_seq_ext)
+
+        if nb_pts == 1 { //TODO check that the ring is closed
+            Err(Error::InvalidGeometry)
+        } else {
+            Ok(_linearRing(&coord_seq_ext))
+        }
     }
 }
 
-impl<'a> From<&'a Polygon<f64>> for GGeom {
-    fn from(p: &Polygon<f64>) -> Self {
-        let geom_exterior: GGeom = (&p.exterior).into();
-        let nb_interiors = p.interiors.len();
+impl<'a> TryInto<GGeom> for &'a Polygon<f64> {
+    type Err = Error;
 
-        let interiors: Vec<_> = p.interiors
+    fn try_into(self) -> Result<GGeom, Self::Err> {
+        let geom_exterior: GGeom = (&self.exterior).try_into()?;
+
+        let interiors: Vec<_> = self.interiors
             .iter()
-            .map(|i| i.into())
-            .map(|i: GGeom| unsafe { GEOSGeom_clone(i.c_obj) })
-            .collect();
+            .map(|i| i.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let t = unsafe {
-            GEOSGeom_createPolygon(
-                GEOSGeom_clone(geom_exterior.c_obj),
-                &interiors[..],
-                nb_interiors as c_uint,
-            )
-        };
-        GGeom::new_from_c_obj(t)
+        GGeom::create_polygon(geom_exterior, interiors)
     }
 }
 
-impl<'a> From<&'a MultiPolygon<f64>> for GGeom {
-    fn from(mp: &MultiPolygon<f64>) -> Self {
-        let nb_polygons = mp.0.len();
-        let polygons: Vec<_> = mp.0
-            .iter()
-            .map(|p| p.into())
-            .map(|g: GGeom| unsafe { GEOSGeom_clone(g.c_obj) })
-            .collect();
+impl<'a> TryInto<GGeom> for &'a MultiPolygon<f64> {
+    type Err = Error;
 
-        let t = unsafe {
-            GEOSGeom_createCollection(
-                GEOSGeomTypes::GEOS_MULTIPOLYGON as c_int,
-                &polygons[..],
-                nb_polygons as c_uint,
-            )
-        };
-        GGeom::new_from_c_obj(t)
+    fn try_into(self) -> Result<GGeom, Self::Err> {
+        let polygons: Vec<_> = self.0
+            .iter()
+            .map(|p| p.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        GGeom::create_mulipolygon(polygons)
     }
 }
 
@@ -64,6 +64,7 @@ impl<'a> From<&'a MultiPolygon<f64>> for GGeom {
 mod test {
     use from_geo::geo::{LineString, MultiPolygon, Point, Polygon};
     use ffi::GGeom;
+    use from_geo::TryInto;
 
     #[test]
     fn polygon_contains_test() {
@@ -88,13 +89,13 @@ mod test {
         assert_eq!(p.exterior, exterior);
         assert_eq!(p.interiors, interiors);
 
-        let geom: GGeom = (&p).into();
+        let geom: GGeom = (&p).try_into().unwrap();
 
         assert!(geom.contains(&geom));
-        assert!(!geom.contains(&(&exterior).into()));
+        assert!(!geom.contains(&(&exterior).try_into().unwrap()));
 
-        assert!(geom.covers((&(&exterior).into())));
-        assert!(geom.touches(&(&exterior).into()));
+        assert!(geom.covers((&(&exterior).try_into().unwrap())));
+        assert!(geom.touches(&(&exterior).try_into().unwrap()));
     }
 
     #[test]
@@ -118,9 +119,25 @@ mod test {
         let p = Polygon::new(exterior.clone(), interiors.clone());
         let mp = MultiPolygon(vec![p.clone()]);
 
-        let geom: GGeom = (&mp).into();
+        let geom = (&mp).try_into();
+        if (geom.is_err()) {return;}
+        let geom: GGeom = (&mp).try_into().unwrap();
 
         assert!(geom.contains(&geom));
-        assert!(geom.contains(&(&p).into()));
+        assert!(geom.contains(&(&p).try_into().unwrap()));
+    }
+
+    #[test]
+    fn incorrect_multipolygon_test() {
+        let exterior = LineString(vec![
+            Point::new(0., 0.)
+        ]);
+        let interiors = vec![];
+        let p = Polygon::new(exterior.clone(), interiors.clone());
+        let mp = MultiPolygon(vec![p.clone()]);
+
+        let geom = (&mp).try_into();
+
+        assert!(geom.is_err());
     }
 }
