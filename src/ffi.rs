@@ -137,28 +137,8 @@ pub struct GeosError {
     pub desc: &'static str,
 }
 
-pub fn _string(raw_ptr: *const c_char) -> String {
 fn _string(raw_ptr: *const c_char) -> String {
     let c_str = unsafe { CStr::from_ptr(raw_ptr) };
-    return str::from_utf8(c_str.to_bytes()).unwrap().to_string();
-}
-
-pub fn _point(s: &CoordSeq) -> GGeom {
-    GGeom::new_from_c_obj(unsafe {
-        GEOSGeom_createPoint(GEOSCoordSeq_clone(s.0 as *const GEOSCoordSequence))
-    })
-}
-
-pub fn _lineString(s: &CoordSeq) -> GGeom {
-    GGeom::new_from_c_obj(unsafe {
-        GEOSGeom_createLineString(GEOSCoordSeq_clone(s.0 as *const GEOSCoordSequence))
-    })
-}
-
-pub fn _linearRing(s: &CoordSeq) -> GGeom {
-    GGeom::new_from_c_obj(unsafe {
-        GEOSGeom_createLinearRing(GEOSCoordSeq_clone(s.0 as *const GEOSCoordSequence))
-    })
     let s = str::from_utf8(c_str.to_bytes()).unwrap().to_string();
         unsafe { GEOSFree(raw_ptr as *mut c_void) };
     s
@@ -603,6 +583,24 @@ impl GGeom {
             }
             Ok(GGeom::new_from_c_obj(t))
         }
+    }
+
+    pub fn create_point(s: &CoordSeq) -> GGeom {
+        GGeom::new_from_c_obj(unsafe {
+            GEOSGeom_createPoint(GEOSCoordSeq_clone(s.0 as *const GEOSCoordSequence))
+        })
+    }
+
+    pub fn create_line_string(s: &CoordSeq) -> GGeom {
+        GGeom::new_from_c_obj(unsafe {
+            GEOSGeom_createLineString(GEOSCoordSeq_clone(s.0 as *const GEOSCoordSequence))
+        })
+    }
+
+    pub fn create_linear_ring(s: &CoordSeq) -> GGeom {
+        GGeom::new_from_c_obj(unsafe {
+            GEOSGeom_createLinearRing(GEOSCoordSeq_clone(s.0 as *const GEOSCoordSequence))
+        })
     }
 }
 

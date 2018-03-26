@@ -3,7 +3,7 @@ extern crate geo;
 use std;
 use libc::{c_int, c_uint, c_void};
 use self::geo::{LineString, MultiPolygon, Polygon};
-use ffi::{CoordSeq, GEOSGeomTypes, GEOSGeom_clone, GGeom, _linearRing, SafeCObj};
+use ffi::{CoordSeq, GEOSGeomTypes, GEOSGeom_clone, GGeom, SafeCObj};
 use error::Error;
 
 // define our own TryInto while the std trait is not stable
@@ -27,7 +27,7 @@ impl<'a> TryInto<GGeom> for &'a LineString<f64> {
         if nb_pts == 1 { //TODO check that the ring is closed
             Err(Error::InvalidGeometry)
         } else {
-            Ok(_linearRing(&coord_seq_ext))
+            Ok(GGeom::create_linear_ring(&coord_seq_ext))
         }
     }
 }

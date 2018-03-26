@@ -8,7 +8,7 @@ extern crate num;
 extern crate failure;
 
 mod ffi;
-pub use ffi::{_point, version, CoordSeq, GGeom, PreparedGGeom, _lineString, _linearRing};
+pub use ffi::{version, CoordSeq, GGeom, PreparedGGeom};
 pub mod from_geo;
 mod error;
 pub use error::Error;
