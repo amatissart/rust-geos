@@ -66,7 +66,7 @@ extern "C" {
 
     fn GEOSGeomToWKT(g: *const c_void) -> *const c_char;
     fn GEOSGeomFromWKB_buf(wkb: *const u8, size: size_t) -> *mut c_void;
-    fn GEOSGeomToWKB_buf(g: *const c_void, size: *mut size_t) -> *const u8;
+    fn GEOSGeomToWKB_buf(g: *const c_void, size: *mut size_t) -> *mut u8;
     fn GEOSGeomTypeId(g: *const c_void) -> c_int;
     fn GEOSArea(g: *const c_void, area: *mut c_double) -> c_int;
     fn GEOSLength(g: *const c_void, distance: *mut c_double) -> c_int;
@@ -140,7 +140,7 @@ pub struct GeosError {
 fn _string(raw_ptr: *const c_char) -> String {
     let c_str = unsafe { CStr::from_ptr(raw_ptr) };
     let s = str::from_utf8(c_str.to_bytes()).unwrap().to_string();
-        unsafe { GEOSFree(raw_ptr as *mut c_void) };
+    unsafe { GEOSFree(raw_ptr as *mut c_void) };
     s
 }
 
@@ -348,11 +348,11 @@ impl GGeom {
         GGeom::new_from_c_obj(obj)
     }
 
-    pub fn new_from_wkb(wkb: *const u8, size: size_t) -> GGeom {
+    pub fn new_from_wkb(wkb: &Vec<u8>) -> GGeom {
         initialize();
         // let strr = CString::new(wkb).unwrap();
         // let t = strr.as_bytes();
-        let obj = unsafe { GEOSGeomFromWKB_buf(wkb as *const u8, size as size_t) };
+        let obj = unsafe { GEOSGeomFromWKB_buf(wkb.as_ptr(), wkb.len()) };
         GGeom::new_from_c_obj(obj)
     }
 
@@ -406,16 +406,14 @@ impl GGeom {
         let c_result = unsafe { GEOSWKTWriter_write(writer, self.c_obj as *const c_void) };
         let result = _string(c_result);
         unsafe { GEOSWKTWriter_destroy(writer) };
-        unsafe { GEOSFree(c_result as *mut c_void) };
         result
     }
 
-    pub fn to_wkb(&self) -> (*const u8, size_t) {
-        let mut dstlen: size_t = 0 as size_t;
-        (
-            unsafe { (GEOSGeomToWKB_buf(self.c_obj as *const c_void, &mut dstlen)) },
-            dstlen,
-        )
+    pub fn to_wkb(&self) -> Vec<u8> {
+        let mut length: size_t = 0 as size_t;
+
+        let raw = unsafe { GEOSGeomToWKB_buf(self.c_obj as *const c_void, &mut length) };
+        unsafe { Vec::from_raw_parts(raw, length, length) }
     }
 
     pub fn is_ring(&self) -> bool {
