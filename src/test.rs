@@ -3,21 +3,6 @@ mod test {
     use ffi::{CoordSeq, GEOSGeomTypes, GGeom, PreparedGGeom};
 
     #[test]
-    fn test_new_geometry_from_wkt_wkb() {
-        let geom = GGeom::new("POINT (2.5 2.5)");
-        assert_eq!(GEOSGeomTypes::GEOS_POINT as i32, geom._type);
-        assert_eq!(true, geom.is_simple());
-        assert_eq!(true, geom.is_valid());
-        assert_eq!(false, geom.is_empty());
-        let line_geom = GGeom::new("LINESTRING(0.0 0.0, 7.0 7.0, 45.0 50.5, 100.0 100.0)");
-        assert_eq!(GEOSGeomTypes::GEOS_LINESTRING as i32, line_geom._type);
-        let wkb = geom.to_wkb();
-        println!("wkb {:?}", wkb);
-        // let g3 = GGeom::new_from_wkb(&wkb);
-        // assert_eq!(true, g3.equals(&geom));
-    }
-
-    #[test]
     fn test_relationship() {
         let pt_geom = GGeom::new("POINT (2.5 2.5)");
         let line_geom = GGeom::new("LINESTRING(1 1,10 50,20 25)");

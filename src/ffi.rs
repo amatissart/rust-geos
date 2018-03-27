@@ -409,13 +409,6 @@ impl GGeom {
         result
     }
 
-    pub fn to_wkb(&self) -> Vec<u8> {
-        let mut length: size_t = 0 as size_t;
-
-        let raw = unsafe { GEOSGeomToWKB_buf(self.c_obj as *const c_void, &mut length) };
-        unsafe { Vec::from_raw_parts(raw, length, length) }
-    }
-
     pub fn is_ring(&self) -> bool {
         let rv = unsafe { GEOSisRing(self.c_obj as *const c_void) };
         return if rv == 1 { true } else { false };
