@@ -137,9 +137,18 @@ pub struct GeosError {
     pub desc: &'static str,
 }
 
+// We need to cleanup only the char* from geos, the const char* are not to be freed.
+// this has to be checked method by method in geos
+// so we provide 2 method to wrap a char* to a string, one that manage (and thus free) the underlying char*
+// and one that does not free it
 fn _string(raw_ptr: *const c_char) -> String {
     let c_str = unsafe { CStr::from_ptr(raw_ptr) };
     let s = str::from_utf8(c_str.to_bytes()).unwrap().to_string();
+    s
+}
+
+fn managed_string(raw_ptr: *const c_char) -> String {
+    let s = _string(raw_ptr);
     unsafe { GEOSFree(raw_ptr as *mut c_void) };
     s
 }
@@ -395,7 +404,7 @@ impl GGeom {
     }
 
     pub fn to_wkt(&self) -> String {
-        unsafe { _string(GEOSGeomToWKT(self.c_obj as *const c_void)) }
+        unsafe { managed_string(GEOSGeomToWKT(self.c_obj as *const c_void)) }
     }
 
     pub fn to_wkt_precison(&self, precision: Option<u32>) -> String {
@@ -404,7 +413,7 @@ impl GGeom {
             unsafe { GEOSWKTWriter_setRoundingPrecision(writer, x as c_int) }
         };
         let c_result = unsafe { GEOSWKTWriter_write(writer, self.c_obj as *const c_void) };
-        let result = _string(c_result);
+        let result = managed_string(c_result);
         unsafe { GEOSWKTWriter_destroy(writer) };
         result
     }

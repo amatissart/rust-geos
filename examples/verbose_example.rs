@@ -26,4 +26,5 @@ fn main() {
         g4.to_wkt_precison(Some(1))
     );
     println!("Geom4 contains centroid of geom1 : {:?}", g3.contains(&g4));
+    println!("Geom4 is valid ? : {}", g3.is_valid());
 }
