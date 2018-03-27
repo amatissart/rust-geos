@@ -288,6 +288,9 @@ impl CoordSeq {
         }
         return *n_mut_ref;
     }
+    pub fn release(mut self) -> *mut GEOSCoordSequence {
+        std::mem::replace(&mut self.0, std::ptr::null_mut())
+    }
 }
 
 pub struct SafeCObj {
@@ -591,16 +594,20 @@ impl GGeom {
         })
     }
 
-    pub fn create_line_string(s: &CoordSeq) -> GGeom {
-        GGeom::new_from_c_obj(unsafe {
-            GEOSGeom_createLineString(GEOSCoordSeq_clone(s.0 as *const GEOSCoordSequence))
-        })
+    pub fn create_line_string(s: CoordSeq) -> GGeom {
+        let obj = GGeom::new_from_c_obj(unsafe {
+            GEOSGeom_createLineString(s.0 as *const GEOSCoordSequence)
+        });
+        s.release();
+        obj
     }
 
-    pub fn create_linear_ring(s: &CoordSeq) -> GGeom {
-        GGeom::new_from_c_obj(unsafe {
-            GEOSGeom_createLinearRing(GEOSCoordSeq_clone(s.0 as *const GEOSCoordSequence))
-        })
+    pub fn create_linear_ring(s: CoordSeq) -> GGeom {
+        let obj = GGeom::new_from_c_obj(unsafe {
+            GEOSGeom_createLinearRing(s.0 as *const GEOSCoordSequence)
+        });
+        s.release();
+        obj
     }
 }
 
