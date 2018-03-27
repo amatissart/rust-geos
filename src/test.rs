@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use ffi::{CoordSeq, GEOSGeomTypes, GGeom, PreparedGGeom};
+    use ffi::{GEOSGeomTypes, GGeom, PreparedGGeom};
 
     #[test]
     fn test_relationship() {

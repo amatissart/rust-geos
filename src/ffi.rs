@@ -1,7 +1,7 @@
 use libc::{atexit, c_char, c_double, c_int, c_uint, c_void, size_t};
 use std::sync::{Once, ONCE_INIT};
 use std::ffi::{CStr, CString};
-use std::{ptr, result, str};
+use std::{ptr, str};
 use error::{Error, Result as GeosResult};
 use std;
 
@@ -535,7 +535,7 @@ impl GGeom {
 
         let interiors_ptr: Vec<_> = interiors
             .into_iter()
-            .map(|mut g| SafeCObj::steal_from(g))
+            .map(|g| SafeCObj::steal_from(g))
             .collect();
 
         let external_c_obj = SafeCObj::steal_from(exterior);
@@ -564,7 +564,7 @@ impl GGeom {
         let nb_polygons = polygons.len();
         let polygons: Vec<_> = polygons
             .into_iter()
-            .map(|mut g| SafeCObj::steal_from(g))
+            .map(|g| SafeCObj::steal_from(g))
             .collect();
 
         let t = unsafe {

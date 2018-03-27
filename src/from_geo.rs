@@ -1,9 +1,7 @@
 extern crate geo;
 
-use std;
-use libc::{c_int, c_uint, c_void};
-use self::geo::{LineString, MultiPolygon, Polygon};
-use ffi::{CoordSeq, GEOSGeomTypes, GEOSGeom_clone, GGeom, SafeCObj};
+use self::geo::{LineString, MultiPolygon, Polygon, Point};
+use ffi::{CoordSeq, GGeom};
 use error::Error;
 
 // define our own TryInto while the std trait is not stable
@@ -12,22 +10,45 @@ pub trait TryInto<T> {
     fn try_into(self) -> Result<T, Self::Err>;
 }
 
+fn create_coord_seq<'a>(points: &'a Vec<Point<f64>>) -> CoordSeq {
+    let nb_pts = points.len();
+    let coord_seq = CoordSeq::new(nb_pts as u32, 2);
+    for i in 0..nb_pts {
+        let j = i as u32;
+        coord_seq.set_x(j, points[i].x());
+        coord_seq.set_y(j, points[i].y());
+    }
+    coord_seq
+}
+
 impl<'a> TryInto<GGeom> for &'a LineString<f64> {
     type Err = Error;
 
     fn try_into(self) -> Result<GGeom, Self::Err> {
-        let nb_pts = self.0.len();
-        let coord_seq_ext = CoordSeq::new(nb_pts as u32, 2);
-        for i in 0..nb_pts {
-            let j = i as u32;
-            coord_seq_ext.set_x(j, self.0[i].x());
-            coord_seq_ext.set_y(j, self.0[i].y());
-        }
+        let coord_seq = create_coord_seq(&self.0);
 
-        if nb_pts == 1 { //TODO check that the ring is closed
-            Err(Error::InvalidGeometry)
+        Ok(GGeom::create_line_string(&coord_seq))
+    }
+}
+
+// rust geo does not have the distinction LineString/LineRing, so we create a wrapper 
+
+struct LineRing<'a>(&'a LineString<f64>);
+
+impl<'a> TryInto<GGeom> for &'a LineRing<'a> {
+    type Err = Error;
+
+    fn try_into(self) -> Result<GGeom, Self::Err> {
+        let points = &(self.0).0;
+        let coord_seq = create_coord_seq(&points);
+
+        if points.len() == 1 {
+            Err(Error::InvalidGeometryDetail("impossible to create a linering from one point".into()))
+        } else if points.len() > 1 && points.first() != points.last() {
+            // the linestring need to be closed else geos will crash
+            Err(Error::InvalidGeometryDetail("impossible to create a linering with an unclosed geometry".into()))
         } else {
-            Ok(GGeom::create_linear_ring(&coord_seq_ext))
+            Ok(GGeom::create_linear_ring(&coord_seq))
         }
     }
 }
@@ -36,11 +57,11 @@ impl<'a> TryInto<GGeom> for &'a Polygon<f64> {
     type Err = Error;
 
     fn try_into(self) -> Result<GGeom, Self::Err> {
-        let geom_exterior: GGeom = (&self.exterior).try_into()?;
+        let geom_exterior: GGeom = LineRing(&self.exterior).try_into()?;
 
         let interiors: Vec<_> = self.interiors
             .iter()
-            .map(|i| i.try_into())
+            .map(|i| LineRing(i).try_into())
             .collect::<Result<Vec<_>, _>>()?;
 
         GGeom::create_polygon(geom_exterior, interiors)
@@ -116,11 +137,9 @@ mod test {
                 Point::new(0.1, 0.1),
             ]),
         ];
-        let p = Polygon::new(exterior.clone(), interiors.clone());
+        let p = Polygon::new(exterior, interiors);
         let mp = MultiPolygon(vec![p.clone()]);
 
-        let geom = (&mp).try_into();
-        if (geom.is_err()) {return;}
         let geom: GGeom = (&mp).try_into().unwrap();
 
         assert!(geom.contains(&geom));
@@ -133,11 +152,38 @@ mod test {
             Point::new(0., 0.)
         ]);
         let interiors = vec![];
-        let p = Polygon::new(exterior.clone(), interiors.clone());
+        let p = Polygon::new(exterior, interiors);
         let mp = MultiPolygon(vec![p.clone()]);
 
         let geom = (&mp).try_into();
 
         assert!(geom.is_err());
+    }    
+    
+    #[test]
+    fn incorrect_polygon_not_closed() {
+        let exterior = LineString(vec![
+            Point::new(0., 0.),
+            Point::new(0., 2.),
+            Point::new(2., 2.),
+            Point::new(2., 0.),
+            Point::new(0., 0.),
+        ]);
+        let interiors = vec![
+            LineString(vec![
+            Point::new(0., 0.),
+            Point::new(0., 1.),
+            Point::new(1., 1.),
+            Point::new(1., 0.),
+            Point::new(0., 10.),
+            ]),
+        ];
+        let p = Polygon::new(exterior, interiors);
+        let mp = MultiPolygon(vec![p]);
+
+        let geom = (&mp).try_into();
+        let error = geom.err().unwrap();
+
+        assert_eq!(format!("{}", error), "Invalid geometry, impossible to create a linering with an unclosed geometry".to_string());
     }
 }
